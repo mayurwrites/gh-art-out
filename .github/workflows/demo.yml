@@ -1,59 +1,96 @@
+
+# Name of the workflow, shown in the GitHub Actions tab
 name: Deploy website
+
+# Trigger: run this workflow on every push to the "main" branch
 on:
   push:
     branches:
       - main
+
 jobs:
+  # ---------------------------------------------------------------------
+  # JOB 1: test
+  # Installs dependencies and runs lint + unit tests to validate the code
+  # ---------------------------------------------------------------------
   test:
     runs-on: ubuntu-latest
     steps:
       - name: Get code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v3 # Checks out the repository code onto the runner
+
       - name: Cache dependencies
-        uses: actions/cache@v3
+        uses: actions/cache@v3 # Caches node_modules to speed up future runs
         with:
           path: ~/.npm
+          # Cache key changes whenever package-lock.json changes, invalidating stale caches
           key: deps-node-modules-${{ hashFiles('**/package-lock.json') }}
+
       - name: Install dependencies
-        run: npm ci
+        run: npm ci # Clean install based on package-lock.json (faster, reproducible)
+
       - name: Lint code
-        run: npm run lint
+        run: npm run lint # Runs the project's linter to catch style/code issues
+
       - name: Test code
-        run: npm run test
+        run: npm run test # Runs the automated test suite
+
+  # ---------------------------------------------------------------------
+  # JOB 2: build
+  # Runs only after "test" succeeds. Builds the production bundle and
+  # uploads it as a workflow artifact for later jobs to use.
+  # ---------------------------------------------------------------------
   build:
-    needs: test
+    needs: test # Wait for the "test" job to finish successfully first
     runs-on: ubuntu-latest
     outputs:
+      # Exposes the built JS filename so the "deploy" job can reference it
       script-file: ${{ steps.publish.outputs.script-file }}
 
     steps:
       - name: Get code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v3 # Checks out the repository code again (new runner/job)
+
       - name: Install dependencies
-        run: npm ci
+        run: npm ci # Reinstall dependencies since this is a fresh runner
+
       - name: Build website
-        run: npm run build
+        run: npm run build # Produces the production build in the "dist" folder
+
       - name: Publish JS Filename
         id: publish                     # id is required to use file format from outputs
+        # Finds the built JS file in dist/assets and writes its name to GITHUB_OUTPUT
+        # so it can be referenced later as steps.publish.outputs.script-file
         run: find dist/assets/*.js -type f -execdir echo 'script-file={}' >> $GITHUB_OUTPUT ';'
+
       - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v4 # Saves the build output so other jobs can download it
         with:
-          name: dist-files
-          path: dist
+          name: dist-files      # Name used by the "deploy" job to retrieve this artifact
+          path: dist             # Folder being uploaded
           #  dist
           #  package.json
+
+  # ---------------------------------------------------------------------
+  # JOB 3: deploy
+  # Runs only after "build" succeeds. Downloads the build artifact and
+  # performs the (simulated) deployment.
+  # ---------------------------------------------------------------------
   deploy:
-    needs: build
+    needs: build # Wait for the "build" job to finish successfully first
     runs-on: ubuntu-latest
     steps:
       - name: Get build artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v4 # Downloads the artifact uploaded by the "build" job
         with:
-          name: dist-files
+          name: dist-files # Must match the artifact name used during upload
+
       - name: Output contents
-        run: ls
+        run: ls # Lists downloaded files, useful for debugging what was retrieved
+
       - name: Output filename
+        # Prints the script filename produced in the "build" job
         run: echo "{{ needs.build.outputs.script-file }}"
+
       - name: Deploy
-        run: echo "Deploying.."
+        run: echo "Deploying.." # Placeholder for actual deployment commands
